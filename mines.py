@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 
-# Making the following assumptions:
-# * There is no flagging (locations of mines are always unknown)
-# * There are no unknown tiles next to constraints with the value '0'
-
 from qiskit import (
     QuantumCircuit,
     ClassicalRegister,
@@ -20,6 +16,8 @@ import numpy as np
 import math
 
 CELL_UNKNOWN = -1
+CELL_BLOCK = -2
+CELL_FLAG = -3
 RESULT_CHARS = {
     0: '.',
     1: '*',
@@ -226,6 +224,19 @@ class Tilemap:
         self.width = n
         self.height = len(tiles)
         self.tiles = tiles
+        # Remove flags and turn them into blocks
+        for row in range(self.height):
+            for col in range(self.width):
+                if self.get_cell(col, row) == CELL_FLAG:
+                    print("FLAG", col, row)
+                    self.set_cell(col, row, CELL_BLOCK)
+                    for (i_col, i_row) in self.iterate_nearby(col, row):
+                        print("    ", i_col, i_row)
+                        value = self.get_cell(i_col, i_row)
+                        if value == 0:
+                            raise RuntimeError("Too many flags next to cell")
+                        if value > 0:
+                            self.set_cell(i_col, i_row, value - 1)
     def __str__(self):
         s = ""
         is_first = True
@@ -234,8 +245,12 @@ class Tilemap:
                 s += '\n'
             is_first = False
             for value in row:
-                if value == -1:
+                if value == CELL_UNKNOWN:
                     s += '?'
+                elif value == CELL_FLAG:
+                    s += '>'
+                elif value == CELL_BLOCK:
+                    s += 'X'
                 else:
                     s += str(value)
         return s
@@ -245,8 +260,10 @@ class Tilemap:
         return self.height
     def get_cell(self, col, row):
         return self.tiles[row][col]
+    def set_cell(self, col, row, value):
+        self.tiles[row][col] = value
     def is_in_bounds(self, col, row):
-        return row in range(self.get_width()) and col in range(self.get_height())
+        return col in range(self.get_width()) and row in range(self.get_height())
     def iterate_constraints(self):
         for row in range(self.get_height()):
             for col in range(self.get_width()):
@@ -265,11 +282,16 @@ class Tilemap:
             for col in range(self.get_width()):
                 if self.get_cell(col, row) == CELL_UNKNOWN:
                     yield (col, row)
+    def iterate_nearby(self, col, row):
+        for i_row in range(max(0, row-1), min(row+2, self.get_height())):
+            for i_col in range(max(0, col-1), min(col+2, self.get_width())):
+                if (i_row != row or i_col != col):
+                    yield (i_col, i_row)
     def iterate_nearby_unknowns(self, col, row):
         for i_row in range(max(0, row-1), min(row+2, self.get_height())):
             for i_col in range(max(0, col-1), min(col+2, self.get_width())):
                 if self.get_cell(i_col, i_row) == CELL_UNKNOWN:
-                    yield(i_col, i_row)
+                    yield (i_col, i_row)
     def num_cells(self):
         n = 0
         for _ in self.iterate_unknowns():
@@ -295,6 +317,10 @@ class Tilemap:
                     s += str(value)
                 elif value == CELL_UNKNOWN:
                     s += RESULT_CHARS[values[qbit_map[(col, row)]]]
+                elif value == CELL_FLAG:
+                    s += ">"
+                elif value == CELL_BLOCK:
+                    s += "X"
                     # if values[qbit_map[(col, row)]] == 0:
                     #     s += "."
                     # else:
@@ -314,5 +340,9 @@ def parse_tiles(s):
                     l.append(0)
                 if c >= '0' and c <= '9':
                     l.append(ord(c) - ord('0'))
+                if c == 'X':
+                    l.append(CELL_BLOCK)
+                if c == '>':
+                    l.append(CELL_FLAG)
             ret.append(l)
     return Tilemap(ret)

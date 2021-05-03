@@ -15,6 +15,8 @@ if args.input is None:
     print("? for each unknown tile")
     print("1-8 for each hint")
     print("0 for empty spaces")
+    print("> for flags")
+    print("X to ignore a given tile (e.g. as a pre-applied flag or grid border)")
     print("All lines must be the same length")
     print("Input a Minesweeper grid:")
     s = ""
@@ -59,7 +61,7 @@ print("Result:")
 probabilities = [[0, 0] for _ in range(len(qbit_map))]
 for key in values:
     value = key[::-1]
-    prob = counts[key] / num_shots
+    prob = counts[key] / args.shots
     for (i, c) in enumerate(value):
         if c == '0':
             probabilities[i][0] += prob
