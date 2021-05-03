@@ -21,6 +21,11 @@ import numpy as np
 import math
 
 CELL_UNKNOWN = -1
+RESULT_CHARS = {
+    0: '.',
+    1: '*',
+    -1: '?'
+}
 
 def make_diffuser(nqubits):
     # from https://qiskit.org/textbook/ch-algorithms/grover.html
@@ -179,7 +184,8 @@ def make_solver_circuit(tilemap):
     # Initialize Z
     circuit.initialize([1, -1]/np.sqrt(2), z)
     # perform grover iterations
-    num_iter = math.ceil(math.sqrt(num_cells)) * 2
+    num_iter = math.ceil(math.sqrt(2**num_cells))# * (math.pi / 4.0))
+    print("Performing {} iterations".format(num_iter))
     (c_oracle, qbit_map) = make_oracle(tilemap)
     c_diffuser = make_diffuser(num_cells)
     # unfortunately, there's no way of knowing how many results M there are
@@ -266,10 +272,11 @@ class Tilemap:
                 elif value > 0:
                     s += str(value)
                 elif value == CELL_UNKNOWN:
-                    if values[qbit_map[(col, row)]] == 0:
-                        s += "."
-                    else:
-                        s += "*"
+                    s += RESULT_CHARS[values[qbit_map[(col, row)]]]
+                    # if values[qbit_map[(col, row)]] == 0:
+                    #     s += "."
+                    # else:
+                    #     s += "*"
         return s
 
 def parse_tiles(s):
