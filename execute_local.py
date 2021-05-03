@@ -1,42 +1,37 @@
 #!/usr/bin/python3
-from qiskit import QuantumCircuit, execute, Aer
-import mines
-import sys
 import argparse
+import sys
 
 # Get arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('input', metavar="INPUT", type=argparse.FileType('r'), nargs='?')
-parser.add_argument('-s', '--shots', type=lambda x: int(x, base=0), default=1000)
+parser.add_argument('input', metavar="INPUT", type=argparse.FileType('r'), nargs='?', help="Minesweeper grid input")
+parser.add_argument('-s', '--shots', type=lambda x: int(x, base=0), default=1000, help="The number of shots to perform")
 group = parser.add_mutually_exclusive_group()
-group.add_argument('-a', '--num-answers', type=lambda x: int(x, base=0), default=None)
-group.add_argument('-i', '--num-iterations', type=lambda x: int(x, base=0), default=None)
+group.add_argument('-a', '--num-answers', type=lambda x: int(x, base=0), default=None, help="The number of answers to estimate the iteration count with")
+group.add_argument('-i', '--num-iterations', type=lambda x: int(x, base=0), default=None, help="The number of iterations to perform")
 args = parser.parse_args()
-# print(args.num_answers, )
 
-fh_input = args.input
-if fh_input is None:
+if args.input is None:
     print("? for each unknown tile")
     print("1-8 for each hint")
     print("0 for empty spaces")
     print("All lines must be the same length")
     print("Input a Minesweeper grid:")
-    fh_input = sys.stdin
+    s = ""
+    while True:
+        line = sys.stdin.readline()
+        if line.strip() == "":
+            break
+        s += line
+else:
+    s = args.input.read()
 
-s = fh_input.read()
+# Import here because qiskit takes time to import
+from qiskit import QuantumCircuit, execute, Aer
+import mines
+
 tilemap = mines.parse_tiles(s)
 
-# tilemap = mines.parse_tiles(
-#     """
-# ???
-# ?31
-# ?10
-#     """
-# )
-
-num_shots = 1000
-
-print()
 print("Input tilemap:")
 print(tilemap)
 print("Generating Circuit...")
@@ -55,7 +50,7 @@ if solver.num_qubits > 16:
     print("(This may take a while on qasm)")
 print("Executing circuit...")
 qasm = Aer.get_backend("qasm_simulator")
-res = execute(solver, backend=qasm, shots=num_shots).result()
+res = execute(solver, backend=qasm, shots=args.shots).result()
 counts = res.get_counts()
 values = list(counts.keys())
 values.sort(key=lambda x: counts[x])
