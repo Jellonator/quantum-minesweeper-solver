@@ -3,7 +3,6 @@
 # Making the following assumptions:
 # * There is no flagging (locations of mines are always unknown)
 # * There are no unknown tiles next to constraints with the value '0'
-# * There are no 8's
 
 from qiskit import (
     QuantumCircuit,
@@ -72,7 +71,7 @@ constraints = {}
 def make_constraint(num_mines, num_cells):
     assert num_mines <= num_cells
     assert num_mines < 8
-    assert num_mines > 0
+    assert num_mines >= 0
     key = (num_mines, num_cells)
     if key in constraints:
         return constraints[key]
@@ -81,7 +80,18 @@ def make_constraint(num_mines, num_cells):
     c = QuantumRegister(3, 'c')
     circuit = QuantumCircuit(x, y, c)
     # count
-    if num_mines == 1 and num_cells == 1:
+    if num_mines == 0:
+        for i in range(num_cells):
+            circuit.x(x[i])
+        if num_cells == 1:
+            circuit.cx(x[0], y)
+        elif num_cells == 2:
+            circuit.ccx(x[0], x[1], y)
+        else:
+            circuit.mcx(x, y)
+        for i in range(num_cells):
+            circuit.x(x[i])
+    elif num_mines == 1 and num_cells == 1:
         circuit.cx(x[0], y)
     elif num_mines == 1 and num_cells == 2:
         circuit.cx(x[0], y)
@@ -167,7 +177,10 @@ def make_oracle(tilemap):
         circuit.append(make_constraint(value, len(c_regs)-1), c_regs + c[:])
     return (circuit, qbit_map)
 
-def make_solver_circuit(tilemap):
+def get_num_iterations(num_cells, num_answers):
+    return max(1, round(math.sqrt(2**num_cells / num_answers) * (math.pi / 4.0)))
+
+def make_solver_circuit(tilemap, num_iter):
     num_cells = tilemap.num_cells()
     num_constraints = tilemap.num_constraints()
     # Make circuit
@@ -184,7 +197,8 @@ def make_solver_circuit(tilemap):
     # Initialize Z
     circuit.initialize([1, -1]/np.sqrt(2), z)
     # perform grover iterations
-    num_iter = math.ceil(math.sqrt(2**num_cells))# * (math.pi / 4.0))
+    # if num_iter == None:
+    #     num_iter = 
     print("Performing {} iterations".format(num_iter))
     (c_oracle, qbit_map) = make_oracle(tilemap)
     c_diffuser = make_diffuser(num_cells)
@@ -236,7 +250,15 @@ class Tilemap:
     def iterate_constraints(self):
         for row in range(self.get_height()):
             for col in range(self.get_width()):
-                if self.get_cell(col, row) >= 1:
+                value = self.get_cell(col, row)
+                if value >= 0:
+                    if value == 0:
+                        has_item = False
+                        for item in self.iterate_nearby_unknowns(col, row):
+                            has_item = True
+                            break
+                        if not has_item:
+                            continue
                     yield (col, row)
     def iterate_unknowns(self):
         for row in range(self.get_height()):
