@@ -85,6 +85,15 @@ try with just `-a 2`.
 4. If the output is still not quite correct, continue to iterate until you get
 correct results.
 
+## Executing through IBM's Quantum Experience
+
+You can run this program on a real IBM Quantum computer via the `execute_ibm.py`
+program. Note that you must have already set up your Python environment with an
+IBM API key to do this.
+
+The command line arguments for `execute_ibm.py` are exactly the same as for
+`execute_local.py`.
+
 ## Performance
 
 The algorithm executes in roughly `O(sqrt(2^n))` time, where `n` is the number
