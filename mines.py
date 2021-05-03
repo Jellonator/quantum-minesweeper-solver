@@ -3,6 +3,7 @@
 # Making the following assumptions:
 # * There is no flagging (locations of mines are always unknown)
 # * There are no unknown tiles next to constraints with the value '0'
+# * There are no 8's
 
 from qiskit import (
     QuantumCircuit,
@@ -15,8 +16,6 @@ from qiskit.circuit.library import (
     OR,
     AND
 )
-from qiskit import QuantumCircuit, execute
-qasm = Aer.get_backend("qasm_simulator")
 
 import numpy as np
 import math
@@ -47,15 +46,36 @@ def make_diffuser(nqubits):
     U_s.name = "U$_s$"
     return U_s
 
+def make_count_circuit(num_mines, num_cells):
+    x = QuantumRegister(num_cells, 'x')
+    c = QuantumRegister(3, 'c')
+    circuit = QuantumCircuit(x, c)
+    # count
+    for i in range(num_cells):
+        circuit.mcx([x[i], c[0], c[1]], c[2])
+        circuit.ccx(x[i], c[0], c[1])
+        circuit.cx(x[i], c[0])
+    if num_mines & 1 == 0:
+        circuit.x(c[0])
+    if num_mines & 2 == 0:
+        circuit.x(c[1])
+    if num_mines & 4 == 0:
+        circuit.x(c[2])
+    return circuit
+
 constraints = {}
 def make_constraint(num_mines, num_cells):
     assert num_mines <= num_cells
+    assert num_mines < 8
+    assert num_mines > 0
     key = (num_mines, num_cells)
     if key in constraints:
         return constraints[key]
     x = QuantumRegister(num_cells, 'x')
     y = QuantumRegister(1, 'y')
-    circuit = QuantumCircuit(x, y)
+    c = QuantumRegister(3, 'c')
+    circuit = QuantumCircuit(x, y, c)
+    # count
     if num_mines == 1 and num_cells == 1:
         circuit.cx(x[0], y)
     elif num_mines == 1 and num_cells == 2:
@@ -63,6 +83,8 @@ def make_constraint(num_mines, num_cells):
         circuit.cx(x[1], y)
     elif num_mines == 2 and num_cells == 2:
         circuit.ccx(x[0], x[1], y)
+    elif num_mines == num_cells:
+        circuit.mcx(x, y)
     elif num_mines == 1 and num_cells == 3:
         circuit.mcx(x, y)
         circuit.cx(x[0], y)
@@ -72,8 +94,6 @@ def make_constraint(num_mines, num_cells):
         circuit.ccx(x[0], x[1], y)
         circuit.ccx(x[0], x[2], y)
         circuit.ccx(x[1], x[2], y)
-    elif num_mines == 3 and num_cells == 3:
-        circuit.mcx(x, y)
     elif num_mines == 1 and num_cells == 4:
         circuit.mct([x[0], x[1], x[2]], y)
         circuit.mct([x[0], x[1], x[3]], y)
@@ -94,9 +114,23 @@ def make_constraint(num_mines, num_cells):
         circuit.mct([x[0], x[1], x[3]], y)
         circuit.mct([x[0], x[2], x[3]], y)
         circuit.mct([x[1], x[2], x[3]], y)
-    # TODO: handle more mines
+    elif num_mines == 3 and num_cells == 4:
+        circuit.mct([x[0], x[1], x[2]], y)
+        circuit.mct([x[0], x[1], x[3]], y)
+        circuit.mct([x[0], x[2], x[3]], y)
+        circuit.mct([x[1], x[2], x[3]], y)
+    # elif num_cells > 4 and num_mines > math.ceil(num_cells/2):
+    #     for i in range(num_mines):
+    #         circuit.x(x[i])
+    #     circuit.append(make_constraint(num_cells-num_mines, num_cells))
+    #     for i in range(num_mines):
+    #         circuit.x(x[i])
     else:
-        raise RuntimeError("Unhandled constraint {}/{}".format(num_mines, num_cells))
+        c_count = make_count_circuit(num_mines, num_cells)
+        circuit.append(c_count, x[:] + c[:])
+        circuit.mcx(c[:], y)
+        circuit.append(c_count.inverse(), x[:] + c[:])
+    # TODO: add more specific handlers for different mine counts
     constraints[key] = circuit
     return circuit
 
@@ -111,20 +145,21 @@ def make_oracle(tilemap):
     cells = QuantumRegister(num_cells, 'cells')
     t = QuantumRegister(num_constraints, 't')
     z = QuantumRegister(1, 'z')
-    circuit = QuantumCircuit(cells, t, z)
+    c = QuantumRegister(3, 'c')
+    circuit = QuantumCircuit(cells, t, z, c)
     # Perform constraint check
     for i, (col, row) in enumerate(tilemap.iterate_constraints()):
         value = tilemap.get_cell(col, row)
         c_regs = [qbit_map[pos] for pos in tilemap.iterate_nearby_unknowns(col, row)]
         c_regs.append(t[i])
-        circuit.append(make_constraint(value, len(c_regs)-1), c_regs)
+        circuit.append(make_constraint(value, len(c_regs)-1), c_regs + c[:])
     circuit.mct(t, z)
     # Undo constraint check
     for i, (col, row) in enumerate(tilemap.iterate_constraints()):
         value = tilemap.get_cell(col, row)
         c_regs = [qbit_map[pos] for pos in tilemap.iterate_nearby_unknowns(col, row)]
         c_regs.append(t[i])
-        circuit.append(make_constraint(value, len(c_regs)-1), c_regs)
+        circuit.append(make_constraint(value, len(c_regs)-1), c_regs + c[:])
     return (circuit, qbit_map)
 
 def make_solver_circuit(tilemap):
@@ -134,20 +169,24 @@ def make_solver_circuit(tilemap):
     cells = QuantumRegister(num_cells, 'cells')
     t = QuantumRegister(num_constraints, 't')
     z = QuantumRegister(1, 'z')
+    c = QuantumRegister(3, 'c')
     c_cells = ClassicalRegister(num_cells, 'c_cells')
-    circuit = QuantumCircuit(cells, t, z, c_cells)
+    circuit = QuantumCircuit(cells, t, z, c, c_cells)
     # Initialize cells
     for i in range(num_cells):
         circuit.reset(cells[i])
         circuit.h(cells[i])
     # Initialize Z
     circuit.initialize([1, -1]/np.sqrt(2), z)
-    # Apply oracle
-    num_iter = math.ceil(math.sqrt(num_cells))
+    # perform grover iterations
+    num_iter = math.ceil(math.sqrt(num_cells)) * 2
     (c_oracle, qbit_map) = make_oracle(tilemap)
     c_diffuser = make_diffuser(num_cells)
+    # unfortunately, there's no way of knowing how many results M there are
+    # out of N possibilities. Also, too many iterations will give bad results,
+    # so we can't overestimate, either.
     for i in range(num_iter):
-        circuit.append(c_oracle, cells[:] + t[:] + z[:])
+        circuit.append(c_oracle, cells[:] + t[:] + z[:] + c[:])
         circuit.append(c_diffuser, cells)
     # Measure
     for i in range(num_cells):
@@ -248,27 +287,3 @@ def parse_tiles(s):
                     l.append(ord(c) - ord('0'))
             ret.append(l)
     return Tilemap(ret)
-
-tilemap = parse_tiles(
-    """
-?????
-11?11
-    """
-)
-
-num_shots = 1000
-print(tilemap)
-(solver, qbit_map) = make_solver_circuit(tilemap)
-print("Executing circuit...")
-res = execute(solver, backend=qasm, shots=num_shots).result()
-counts = res.get_counts()
-# value = max(counts, key=counts.get)
-values = list(counts.keys())
-# values.sort(key=lambda x: counts[x])
-# print(value)
-print("Result:")
-for value in values:
-    prob = counts[value] / num_shots
-    if prob > 0.01:
-        print(tilemap.get_answer([int(c) for c in value[::-1]], qbit_map))
-        print("Probability:", prob)
