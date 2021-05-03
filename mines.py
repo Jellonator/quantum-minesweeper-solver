@@ -193,7 +193,9 @@ def make_solver_circuit(tilemap, num_iter):
         circuit.reset(cells[i])
         circuit.h(cells[i])
     # Initialize Z
-    circuit.initialize([1, -1]/np.sqrt(2), z)
+    circuit.reset(z)
+    circuit.x(z)
+    circuit.h(z)
     # perform grover iterations
     # if num_iter == None:
     #     num_iter = 
