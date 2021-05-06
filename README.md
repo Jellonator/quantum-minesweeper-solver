@@ -94,9 +94,16 @@ IBM API key to do this.
 The command line arguments for `execute_ibm.py` are exactly the same as for
 `execute_local.py`.
 
+If you have access to exclusive/paid IBM quantum machines, you will need to edit
+this script to support them.
+
 ## Performance
 
 The algorithm executes in roughly `O(sqrt(2^n))` time, where `n` is the number
 of unknown cells. This is the same number as the number of Grover iterations used.
 Of course, if executing a generated circuit locally, it will be ran through a
 QASM simulator, and will be much slower as a result.
+
+The generated QASM code tends to be very long, and takes considerable amount of time
+to execute on real quantum hardware. Because of this, the results you get as a result
+will tend to be garbage, as the qubit data will have decayed.
